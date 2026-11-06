@@ -177,6 +177,39 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(migration.Jsonc(data.decode("utf-8-sig")).root.value["Values"]
                          ["LOGIC_APPS_CUSTOMCODE_DOTNETVERSION"], "net10.0")
 
+    def test_compact_settings_insert_missing_runtime_selector(self):
+        path = self.host / "local.settings.json"
+        expected = json.loads(path.read_text())
+        del expected["Values"]["LOGIC_APPS_CUSTOMCODE_DOTNETVERSION"]
+        self.write(path, json.dumps(expected, separators=(",", ":")))
+        result = self.run_cli("--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected["Values"]["LOGIC_APPS_CUSTOMCODE_DOTNETVERSION"] = "net10.0"
+        self.assertEqual(json.loads(path.read_text()), expected)
+        before = self.snapshot()
+        self.assertEqual(self.run_cli("--apply").returncode, 0)
+        self.assertEqual(before, self.snapshot())
+
+    def test_compact_launch_appends_integrated_debugger(self):
+        path = self.host / ".vscode" / "launch.json"
+        original = {"name": "Original attach", "type": "coreclr", "request": "attach"}
+        self.write(path, json.dumps({"version": "0.2.0", "configurations": [original]},
+                                   separators=(",", ":")))
+        result = self.run_cli("--integrated-debug", "--apply")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        launch = json.loads(path.read_text())
+        self.assertEqual(launch["version"], "0.2.0")
+        self.assertEqual(len(launch["configurations"]), 2)
+        self.assertEqual(launch["configurations"][0], original)
+        integrated = launch["configurations"][1]
+        for key, value in (("type", "logicapp"), ("request", "launch"),
+                           ("funcRuntime", "coreclr"), ("customCodeRuntime", "coreclr"),
+                           ("isCodeless", True)):
+            self.assertEqual(integrated[key], value)
+        before = self.snapshot()
+        self.assertEqual(self.run_cli("--integrated-debug", "--apply").returncode, 0)
+        self.assertEqual(before, self.snapshot())
+
     def test_project_crlf_is_preserved(self):
         self.project.write_bytes(PROJECT.replace("\n", "\r\n").encode())
         result = self.run_cli("--apply")

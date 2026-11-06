@@ -131,10 +131,15 @@ class Jsonc:
             position, addition = line_start, indent + member + newline
         else:
             position, addition = close, newline + indent + member + newline + closing_indent
-        edits = [(position, position, addition)]
+        edits = []
         children = list(node.children.values()) if isinstance(node.children, dict) else node.children
         if children and not node.trailing:
-            edits.append((children[-1].end, children[-1].end, ","))
+            comma_position = children[-1].end
+            if comma_position == position:
+                addition = "," + addition
+            else:
+                edits.append((comma_position, comma_position, ","))
+        edits.append((position, position, addition))
         result = self.text
         for start, end, replacement in sorted(edits, reverse=True):
             result = result[:start] + replacement + result[end:]
