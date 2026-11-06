@@ -315,11 +315,13 @@ def update_project(text, notes, ensure_output_directory=False):
         mkdir.setAttribute("Condition", f"!Exists('{directory}')")
 
     publish_hooks = [node for node in targets
-                     if "Build" in node.getAttribute("AfterTargets").split(";")
-                     and any("Publish" in call.getAttribute("Targets").split(";")
-                             for call in elements(node, "CallTarget"))]
+                     if any(token.strip().lower() == "build"
+                            for token in node.getAttribute("AfterTargets").split(";"))
+                     and any(token.strip().lower() == "publish"
+                             for call in elements(node, "CallTarget")
+                             for token in call.getAttribute("Targets").split(";"))]
     if not publish_hooks:
-        if any(node.getAttribute("Name") == "TriggerPublishOnBuild" for node in targets):
+        if any(node.getAttribute("Name").lower() == "triggerpublishonbuild" for node in targets):
             raise MigrationError("Conflicting publish-on-build target requires manual review.")
         hook = new_element("Target")
         hook.setAttribute("Name", "TriggerPublishOnBuild")
@@ -536,7 +538,8 @@ def make_plan(root, selected=None, *, ensure_output_directory=False, integrated_
         updated = re.sub(r"(?i)(^|[/\\])net8(?:\.0)?(?=[/\\]|$)",
                          lambda match: match.group(1) + "net10.0", deploy.value)
         if updated == deploy.value and not re.search(r"(^|[/\\])net10\.0([/\\]|$)", updated):
-            plan.notes.append("Deployment path has no framework component; inspect custom deployment tasks.")
+            plan.notes.append("No recognized net8/net8.0 or net10.0 deployment-path component; "
+                              "inspect custom deployment tasks.")
         editor = Jsonc(editor).set(("azureFunctions.deploySubpath",), updated)
     else:
         plan.notes.append("No Functions deployment path specified; local publication is controlled by MSBuild.")

@@ -280,6 +280,46 @@ class MigrationTests(unittest.TestCase):
         self.write(self.project, PROJECT.replace("</Project>", guard + "</Project>"))
         self.assert_blocked_unchanged()
 
+    def test_preserves_case_variant_publish_hooks(self):
+        for after_targets, call_targets in (
+                ("build", "publish"),
+                ("bUiLd", "pUbLiSh"),
+                (" BeforeBuild ; Build ", " BeforePublish ; Publish ")):
+            with self.subTest(after_targets=after_targets, call_targets=call_targets):
+                hook = (f'<Target Name="ExistingPublishHook" AfterTargets="{after_targets}">'
+                        f'<CallTarget Targets="{call_targets}" /></Target>')
+                self.write(self.project, PROJECT.replace("</Project>", hook + "</Project>"))
+                result = self.run_cli("--apply")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                targets = migration.elements(
+                    migration.project_xml(self.project.read_text()), "Target")
+                self.assertEqual([node.getAttribute("Name") for node in targets],
+                                 ["ExistingPublishHook"])
+                self.assertEqual(targets[0].getAttribute("AfterTargets"), after_targets)
+                call = migration.elements(targets[0], "CallTarget")[0]
+                self.assertEqual(call.getAttribute("Targets"), call_targets)
+
+    def test_refuses_case_variant_publish_target_conflict(self):
+        hook = ('<Target Name="triggerpublishonbuild" AfterTargets="Build">'
+                '<CallTarget Targets="Pack" /></Target>')
+        self.write(self.project, PROJECT.replace("</Project>", hook + "</Project>"))
+        self.assert_blocked_unchanged()
+
+    def test_unrecognized_deployment_paths_are_preserved_and_reported_without_values(self):
+        path = self.project.parent / ".vscode" / "settings.json"
+        for suffix in (r"custom\publish", r"out\Release\net48\publish"):
+            with self.subTest(suffix=suffix):
+                self.write(path, json.dumps({
+                    "azureFunctions.deploySubpath": "SENSITIVE-TEST-SENTINEL\\" + suffix,
+                }))
+                before = path.read_bytes()
+                result = self.run_cli("--apply")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(path.read_bytes(), before)
+                self.assertIn("No recognized net8/net8.0 or net10.0 deployment-path component",
+                              result.stdout)
+                self.assertNotIn("SENSITIVE-TEST-SENTINEL", result.stdout + result.stderr)
+
     def test_preserves_newer_worker_and_logging_versions(self):
         text = PROJECT.replace('Version="1.15.1"', 'Version="2.0.8"')
         text = text.replace('Version="6.0.0"', 'Version="10.0.1"')
